@@ -2,7 +2,30 @@ from random import random
 from typing import Optional
 from fastapi import FastAPI, Response, status, HTTPException
 from pydantic import BaseModel
-import random
+import os
+import time
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+load_dotenv()
+
+while True:
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST'),
+            database=os.getenv('DB_DATABASE'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            cursor_factory=RealDictCursor
+        )
+        cursor = conn.cursor()
+        print('Database connection established')
+        break
+    except Exception as e:
+        print(f'Database connection error: {e}')
+        time.sleep(5)
+
 
 app = FastAPI()
 
@@ -12,47 +35,54 @@ class Post(BaseModel):
     published: bool = True
     rating: Optional[int] = None
 
-posts_cache = [] 
-
-@app.get('/')
-def root():
-    return {'message': 'Hello World'}
 
 @app.post('/posts', status_code=status.HTTP_201_CREATED)
 def create_post(post: Post):
-    post_dict = post.dict()
-    post_dict['id'] = random.randrange(1, 10000)
-    posts_cache.append(post_dict)
-    return {'data': post_dict}
+    cursor.execute(
+        'INSERT INTO posts (title, content, published) VALUES (%s, %s, %s) RETURNING *',
+        (post.title, post.content, post.published)
+    )
+    new_post = cursor.fetchone()
+    conn.commit()
+    return {'data': new_post}
 
 @app.get('/posts')
 def get_posts():
-    return {'data': posts_cache}
+    cursor.execute('SELECT * FROM posts')
+    posts = cursor.fetchall()
+    return {'data': posts}
 
-def find_post(id: int):
-    post = next((el for el in posts_cache if el['id'] == id), None)
+def find_post(id):
+    post = cursor.fetchone()
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Post with id {id} not found"
+            detail=f'Post with id {id} not found'
         )
-    return post, posts_cache.index(post)
+    return post
 
 @app.get('/posts/{id}') # id is a path parameter
 def get_post(id: int, response: Response):
-    post, _ = find_post(id)
+    cursor.execute('SELECT * FROM posts WHERE id=%s', (id,))
+    post = find_post(id)
     return {'data': post}
 
 @app.delete('/posts/{id}', status_code=status.HTTP_204_NO_CONTENT)
 def delete_post(id: int):
-    post, _ = find_post(id)
-    posts_cache.remove(post)
+    cursor.execute(
+        'DELETE FROM posts WHERE id=%s RETURNING *',
+        (id,)
+    )
+    find_post(id)
+    conn.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.put('/posts/{id}')
 def update_post(id: int, post: Post):
-    new_post = post.dict()
-    _, index = find_post(id)
-    new_post['id'] = id
-    posts_cache[index] = new_post
-    return {'data': new_post}
+    cursor.execute(
+        'UPDATE posts SET title=%s, content=%s, published=%s WHERE id=%s RETURNING *',
+        (post.title, post.content, post.published, id)
+    )
+    updated_post = find_post(id)
+    conn.commit()
+    return {'data': updated_post}
