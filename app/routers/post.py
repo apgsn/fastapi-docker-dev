@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Optional
 from fastapi import Response, status, Depends, APIRouter, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from ..models import Post
 from ..schemas import PostBase, PostResponse
 from ..utils import respond_404
@@ -30,8 +31,15 @@ def create_post(
 def get_posts(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
+    limit: Optional[int] = 10,
+    offset: Optional[int] = None,
+    search: Optional[str] = '',
 ):
-    posts = db.query(Post).all()
+    posts = db.query(Post) \
+        .filter(or_(Post.title.contains(search), Post.content.contains(search))) \
+        .limit(limit) \
+        .offset(offset) \
+        .all()
     return posts
 
 @router.get('/{id}', response_model=PostResponse) # id is a path parameter
