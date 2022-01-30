@@ -1,8 +1,8 @@
 from typing import List
-from fastapi import Response, status, Depends, APIRouter
+from fastapi import Response, status, Depends, APIRouter, HTTPException
 from sqlalchemy.orm import Session
 from ..models import Post
-from ..schemas import UserCreate, PostBase, PostResponse
+from ..schemas import PostBase, PostResponse
 from ..utils import respond_404
 from ..database import get_db
 from ..oauth2 import get_current_user
@@ -17,9 +17,9 @@ router = APIRouter(
 def create_post(
     post: PostBase,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
-    new_post = Post(**post.dict())
+    new_post = Post(owner_id=user.id, **post.dict())
     db.add(new_post)
     db.commit()
     db.refresh(new_post)    # Save newly created record into new_post, so it can be returned
@@ -29,7 +29,7 @@ def create_post(
 @router.get('/', response_model=List[PostResponse])
 def get_posts(
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     posts = db.query(Post).all()
     return posts
@@ -51,12 +51,19 @@ def get_post(
 def delete_post(
     id: int,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),    
+    user: dict = Depends(get_current_user),    
 ):
     post_query = db.query(Post).filter(Post.id == id)
+    deleted_post = post_query.one_or_none()
 
-    if not post_query.one_or_none():
+    if not deleted_post:
         respond_404(id)
+
+    if deleted_post.owner_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Not authorized to perform this operation'
+        )
 
     post_query.delete(synchronize_session=False)
     db.commit()
@@ -68,13 +75,19 @@ def update_post(
     id: int,
     post: PostBase,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),        
+    user: dict = Depends(get_current_user),        
 ):
     post_query = db.query(Post).filter(Post.id == id)
     updated_post = post_query.one_or_none()
 
     if not updated_post:
         respond_404(id)
+
+    if updated_post.owner_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Not authorized to perform this operation'
+        )
 
     post_query.update(post.dict(), synchronize_session=False)
     db.commit()
