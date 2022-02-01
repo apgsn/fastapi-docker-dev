@@ -1,5 +1,5 @@
 import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, conint
 from datetime import datetime
 
 class UserCreate(BaseModel):
@@ -14,6 +14,10 @@ class UserResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class VoteSchema(BaseModel):
+    post_id: int
+    dir: conint(ge=0, le=1)
+
 class PostBase(BaseModel):
     title: str
     content: str
@@ -23,6 +27,7 @@ class PostResponse(PostBase):
     id: int
     created_at: datetime
     owner: UserResponse
+    votes: int
 
     class Config:
         orm_mode = True
