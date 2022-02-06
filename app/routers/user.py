@@ -1,4 +1,4 @@
-from fastapi import status, Depends, APIRouter
+from fastapi import status, Depends, APIRouter, HTTPException
 from sqlalchemy.orm import Session
 from ..models import User
 from ..schemas import UserCreate, UserResponse
@@ -13,6 +13,14 @@ router = APIRouter(
 
 @router.post('/', status_code=status.HTTP_201_CREATED, response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    # Check that mail has not been taken
+    found_user = db.query(User).filter(User.email == user.email).one_or_none()
+    if found_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Cannot create user with these credentials'
+        )
+
     # Hash pwd
     user.password = hash(user.password)
 
